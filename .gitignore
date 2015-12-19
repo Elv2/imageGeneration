@@ -1,0 +1,11 @@
+# Exclude model file
+*.net
+
+# Exclude training log
+logs/
+
+# Exculde dataset
+cifar-10-batches-t7/
+
+# Exclude submodules
+cifar.torch/
