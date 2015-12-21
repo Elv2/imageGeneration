@@ -13,11 +13,11 @@ require 'Sampler'
 latent_size = 256
 -- setting
 opt = lapp[[
-   --model                    (default "logs/VAEReLU01Norm/decoder.net")      Model used to generate image
+   --model                    (default "logs/debug/decoder.net")      Model used to generate image
    -s,--save                  (default "/test/")               Relative subdirectory to save images
 ]]
 
-dataNorm = '01'
+dataNorm = 'MeanStd'
 -- save directory
 gen_folder = paths.dirname(opt.model) .. opt.save .. 'generate/'
 gt_folder = paths.dirname(opt.model) .. opt.save .. 'gt/'
@@ -27,13 +27,11 @@ paths.mkdir(gt_folder)
 model = torch.load(opt.model)
 
 -- data
-datafile = '/home/tt3/DATA/caoqingxing/text2image/cifar.torch/provider'..dataNorm..'Norm.t7'
+datafile = 'cifar.torch/provider'..dataNorm..'Norm.t7'
 provider = torch.load(datafile)
 provider.testData.data = provider.testData.data:cuda()
 
 -- test
---confusion = optim.ConfusionMatrix(10)
-Reconstruct_criterion = nn.GaussianCriterion():cuda()
 -- disable flips, dropouts and batch normalization
 model:evaluate()
 print(c.blue '==>'.." testing")
@@ -45,13 +43,7 @@ for i=1,testSize,1 do
 	z = torch.randn(1, latent_size):cuda()
 	softmax = torch.zeros(1,10):cuda()
 	softmax[1][provider.testData.labels[i]] = 1
-	local classifierOutput,z_mean,z_log_square_var,x_prediction,x_prediction_var = unpack(model:forward(provider.testData.data:narrow(1,i,bs)))
-
-	local ReconstructLoss = Reconstruct_criterion:forward({x_prediction,x_prediction_var}, provider.testData.data:narrow(1,i,bs))
-
-	test_loss = test_loss + ReconstructLoss
-	--confusion:batchAdd(classifierOutput:select(1,1), provider.testData.labels:narrow(1,i,bs))
-
+	x_prediction,x_prediction_var = unpack(model:forward({z,softmax}))
 	im = x_prediction
 	im_gt = provider.testData.data[i]:clone()
 	if dataNorm == 'MeanStd' then
@@ -69,7 +61,3 @@ for i=1,testSize,1 do
 		image.save(gt_folder .. tostring(i) .. '.jpg', im_gt)
 	end
 end
-test_loss = test_loss/testSize
---confusion:updateValids()
-print('Test accuracy:', test_loss)
-

@@ -13,11 +13,14 @@ require 'KLDCriterion'
 require 'GaussianCriterion'
 require 'Sampler'
 
---nngraph.setDebug(true)
+
 -- setting
-latent_size = 256
+local debug_output = false
+local latent_size = 256
+local dataNorm  = '01'
+local Nonlinear = 'Tanh'
 opt = lapp[[
-   -s,--save                  (default "logs/VAEReLU01Norm")      subdirectory to save logs
+   -s,--save_prefix           (default "logs/VAE")      subdirectory to save logs
    -b,--batchSize             (default 128)          batch size
    -r,--learningRate          (default 3e-4)        learning rate
    --learningRateDecay        (default 1e-7)      learning rate decay
@@ -26,7 +29,7 @@ opt = lapp[[
    --epoch_step               (default 20)          epoch step
    --max_epoch                (default 300)           maximum number of iterations
 ]]
-
+opt.save = opt.save_prefix .. Nonlinear .. dataNorm 'Norm'
 local function inverse_layer(x)
   local z
   
@@ -49,6 +52,8 @@ local function inverse_layer(x)
   return z
 end
 
+if debug_output then nngraph.setDebug(true) end
+
 torch.manualSeed(1)
 
 -- load caffemodel
@@ -67,10 +72,10 @@ torchmodel = 'pretrain-model/nin_caffe/model.net' -- load torch training model
 encoder = torch.load(torchmodel)
 classifier = nn.Sequential()
 for i = encoder:size()-3,encoder:size() do -- remove last 4 layer of NIN model, 
-  classifier:add(encoder:get(i):clone())
+	classifier:add(encoder:get(i):clone())
 end
 for i = encoder:size()-3,encoder:size() do
-  encoder:remove()  
+	encoder:remove()  
 end
 encoderFC = encoder(x)  --Output feature map for cifar10&NIN is 8*8*192
 
@@ -89,42 +94,47 @@ decoder:add(nn.JoinTable(1,1))
 decoder:add(nn.Linear(latent_size+10,192*8*8))
 decoder:add(nn.View(192,8,8))
 for i = encoder:size(),1,-1 do
-   local z = inverse_layer(encoder:get(i));
-   if z ~= nil then 
-     if i == 1 then
-       decoder:add(nn.ConcatTable():add(z):add(inverse_layer(encoder:get(i))))
-     else
-       decoder:add(z)
-	 end
-   end
+	local z = inverse_layer(encoder:get(i));
+	if z ~= nil then 
+		if i == 1 then
+			decoder:add(nn.ConcatTable():add(z):add(inverse_layer(encoder:get(i))))
+		else
+			decoder:add(z)
+		end
+	end
 end
 x_prediction, x_prediction_var = decoder({z,classifierSoftmax}):split(2)
 
 nngraph.annotateNodes()
 model = nn.gModule({x},{classifierOutput,z_mean,z_log_square_var,x_prediction,x_prediction_var})
 
--- threshold_nodes, container_nodes = model:findModules('nn.ReLU')
--- for i = 1, #threshold_nodes do
-  -- -- Search the container for the current threshold node
-  -- for j = 1, #(container_nodes[i].modules) do
-    -- if container_nodes[i].modules[j] == threshold_nodes[i] then
-      -- -- Replace with a new instance
-      -- container_nodes[i].modules[j] = nn.Tanh()
-    -- end
-  -- end
--- end
+if Nonlinear == 'Tanh' then
+	threshold_nodes, container_nodes = model:findModules('nn.ReLU')
+	for i = 1, #threshold_nodes do
+		-- Search the container for the current threshold node
+		for j = 1, #(container_nodes[i].modules) do
+			if container_nodes[i].modules[j] == threshold_nodes[i] then
+				-- Replace with a new instance
+				container_nodes[i].modules[j] = nn.Tanh()
+			end
+		end
+	end
+end
 
 --------
 
 model:cuda()
 model.name = 'NIN_debug'
 -- debug
--- local input = torch.rand(3,32,32)
--- pcall(function() model:updateOutput(input) end)
--- graph.dot(model.fg, 'Forward Graph', 'debug')
+if debug_output then
+	paths.mkdir('debug')
+	local input = torch.rand(3,32,32)
+	pcall(function() model:updateOutput(input) end)
+	graph.dot(model.fg, 'Forward Graph', 'debug')
+end
 
 -- data
-datafile = '/home/tt3/DATA/caoqingxing/text2image/cifar.torch/provider01Norm.t7'
+datafile = 'cifar.torch/provider'..dataNorm..'Norm.t7'
 provider = torch.load(datafile)
 provider.trainData.data = provider.trainData.data:cuda()
 provider.testData.data = provider.testData.data:cuda()
@@ -189,6 +199,9 @@ function train()
       local df_dl = Reconstruct_criterion:backward({x_prediction,x_prediction_var}, inputs)
 	  local KLDistance = KLD:forward(z_mean,z_log_square_var)
       local df_dzmu, df_dzvar = unpack(KLD:backward(z_mean,z_log_square_var))
+	  
+	  if z_means == nil then z_means = z_mean:clone()
+	  else z_means:add(z_mean) end
 	  ------------------------------------------
 	  -- debug: Do not learn classifier & reconstruction sigma
 	  df_do:fill(0)
@@ -209,11 +222,12 @@ function train()
   train_acc = confusion.totalValid * 100
   
   training_loss:div(provider.trainData.data:size(1))
-  print(('Classification accuracy: '..c.cyan'%.2f'..
-         '\nReconstruct negative log-likelihood: '..c.cyan'%f'..
-		 '\nLatent negative log-likelihood: '..c.cyan'%f'..
-		 '\n time: %.2f s'):format(
-        train_acc, training_loss[2], training_loss[3], torch.toc(tic)))
+  print(('Classification accuracy:\t\t'..c.cyan'%.2f'..
+         '\nReconstruct negative log-likelihood:\t'..c.cyan'%f'..
+		 '\nLatent negative log-likelihood:\t\t'..c.cyan'%f'..
+		 '\nLatent mean: '..c.cyan'%f'..
+		 '\ntime: %.2f s'):format(
+        train_acc, training_loss[2], training_loss[3], z_means:mean(), torch.toc(tic)))
 
   confusion:zero()		
   epoch = epoch + 1
