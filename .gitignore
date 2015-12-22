@@ -8,4 +8,7 @@ logs/
 cifar-10-batches-t7/
 
 # Exclude submodules
-cifar.torch/
+# cifar.torch/
+
+# Exclude torch save data
+*.t7
