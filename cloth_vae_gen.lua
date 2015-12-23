@@ -14,7 +14,7 @@ Nonlinear = 'ReLU'
 opt = lapp[[
    -s,--save_prefix           (default "logs/clothVAE")      subdirectory to save logs
    -b,--batchSize             (default 8)          batch size
-   -r,--learningRate          (default 3e-4)        learning rate
+   -r,--learningRate          (default 3e-6)        learning rate
    --learningRateDecay        (default 1e-7)      learning rate decay
    --weightDecay              (default 0.0005)      weightDecay
    -m,--momentum              (default 0.9)         momentum
@@ -70,6 +70,32 @@ optimState = {
   momentum = opt.momentum,
   learningRateDecay = opt.learningRateDecay,
 }
+
+function generate()
+  -- disable flips, dropouts and batch normalization
+	decoder:evaluate()
+	print(c.blue '==>'.." generating")
+	local bs = 1
+	test_loss = 0
+	testSize = 100
+	for i=1,testSize,1 do
+		xlua.progress(i,testSize)
+		z = torch.randn(1, latent_size):cuda()
+		softmax = torch.zeros(1,10):cuda()
+		softmax[1][1] = 1
+		x_prediction,x_prediction_var = unpack(decoder:forward({z,softmax}))
+		im = x_prediction:clone()
+		if dataNorm == 'MeanStd' then
+			for channel=1,3 do -- over each image channel
+				im[{ {channel}, {}, {}  }]:mul(provider.trainData.std[channel]) -- std scaling
+				im[{ {channel}, {}, {}  }]:add(provider.trainData.mean[channel]) -- mean subtraction
+			end
+			image.save(gen_folder .. tostring(i) .. '.jpg', im:div(255))
+		else
+			image.save(gen_folder .. tostring(i) .. '.jpg', im)
+		end
+	end
+end
 
 function train()
   model:training()
@@ -132,6 +158,15 @@ function train()
     end
     _, batch_loss = optim.sgd(feval, parameters, optimState)
 	training_loss:add(torch.Tensor(batch_loss[1]))
+	
+	if t % 1000 == 0 then
+		generate()
+		print(('Reconstruct negative log-likelihood:\t'..c.cyan'%f'..
+		 '\nLatent negative log-likelihood:\t\t'..c.cyan'%f'..
+		 '\nLatent mean: '..c.cyan'%f'..
+		 '\ntime: %.2f s'):format(
+		 training_loss[2]/t/opt.batchSize, training_loss[3]/t/opt.batchSize, z_means:mean(), torch.toc(tic)))
+	end
 	-- debug: one iteration for code checking
     --break
   end
@@ -226,41 +261,6 @@ function test()
 	torch.save(filename, decoder)
   end
 
-end
-
-function generate()
-  -- disable flips, dropouts and batch normalization
-	decoder:evaluate()
-	print(c.blue '==>'.." generating")
-	local bs = 1
-	test_loss = 0
-	testSize = 100
-	for i=1,testSize,1 do
-		xlua.progress(i,testSize)
-		z = torch.randn(1, latent_size):cuda()
-		softmax = torch.zeros(1,10):cuda()
-		softmax[1][1] = 1
-		x_prediction,x_prediction_var = unpack(decoder:forward({z,softmax}))
-		im = x_prediction:clone()
-		if dataNorm == 'MeanStd' then
-			for channel=1,3 do -- over each image channel
-				im[{ {channel}, {}, {}  }]:mul(provider.trainData.std[channel]) -- std scaling
-				im[{ {channel}, {}, {}  }]:add(provider.trainData.mean[channel]) -- mean subtraction
-			end
-			image.save(gen_folder .. tostring(i) .. '.jpg', im:div(255))
-		else
-			image.save(gen_folder .. tostring(i) .. '.jpg', im)
-		end
-	end
-	
-	-- if epoch % 1 == 0 then
-		-- local filename = paths.concat(opt.save, 'model.net')
-		-- print('==> saving model to '..filename)
-		-- torch.save(filename, model)
-
-		-- filename = paths.concat(opt.save, 'decoder.net')
-		-- torch.save(filename, decoder)
-	-- end
 end
 
 for i=1,opt.max_epoch do

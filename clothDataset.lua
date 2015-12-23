@@ -71,7 +71,7 @@ function DataSet:initLoad()
   if dataNorm == '01' then
   setmetatable(trainData.data, {__index = function(self, index)
                                        im = image.load(trainData.impath_rootFolder..trainData.imPath[indices[index]])
-									   if torch.max(im) <= 1.5 then im:div(255) end
+									   --if torch.max(im) <= 1.5 then im:div(255) end
                                        return im
                                     end})
   else
