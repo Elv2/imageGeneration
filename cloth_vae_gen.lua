@@ -12,13 +12,13 @@ latent_size = 256
 dataNorm  = '01'
 Nonlinear = 'ReLU'
 opt = lapp[[
-   -s,--save_prefix           (default "logs/clothVAE")      subdirectory to save logs
+   -s,--save_prefix           (default "logs/clothCVAE")      subdirectory to save logs
    -b,--batchSize             (default 8)          batch size
    -r,--learningRate          (default 3e-6)        learning rate
    --learningRateDecay        (default 1e-7)      learning rate decay
    --weightDecay              (default 0.0005)      weightDecay
    -m,--momentum              (default 0.9)         momentum
-   --epoch_step               (default 20)          epoch step
+   --epoch_step               (default 1)          epoch step
    --max_epoch                (default 300)           maximum number of iterations
 ]]
 opt.save = opt.save_prefix .. Nonlinear .. dataNorm .. 'Norm/'
@@ -82,7 +82,7 @@ function generate()
 		xlua.progress(i,testSize)
 		z = torch.randn(1, latent_size):cuda()
 		softmax = torch.zeros(1,10):cuda()
-		softmax[1][1] = 1
+		softmax[{ {}, {1,9} }]:copy(provider.trainData.labels:index(1,i))
 		x_prediction,x_prediction_var = unpack(decoder:forward({z,softmax}))
 		im = x_prediction:clone()
 		if dataNorm == 'MeanStd' then
@@ -108,6 +108,7 @@ function train()
   print(c.blue '==>'.." online epoch # " .. epoch .. ' [batchSize = ' .. opt.batchSize .. ']')
 
   local targets = torch.CudaTensor(opt.batchSize)
+  local inputTargets = torch.CudaTensor(opt.batchSize,10)
   local indices = torch.randperm(provider.trainData.size()):long():split(opt.batchSize)
   -- remove last element so that all the batches have equal size
   indices[#indices] = nil
@@ -125,12 +126,14 @@ function train()
 	--debug
 	--targets:copy(provider.trainData.labels:index(1,v))
 	targets:fill(1)
+	inputTargets[{ {},{1,9} }]:copy(provider.trainData.labels:index(1,v))
+	inputTargets[{ {},{10} }] = 0
     -----------------------------------------------------
     local feval = function(x)
       if x ~= parameters then parameters:copy(x) end
       gradParameters:zero()
 	  
-      local classifierOutput,z_mean,z_log_square_var,x_prediction,x_prediction_var = unpack(model:forward(inputs))
+      local classifierOutput,z_mean,z_log_square_var,x_prediction,x_prediction_var = unpack(model:forward(inputs,inputTargets))
 	  ------------------------------------------
 	  -- debug fix sigma = 1; x_prediction_var = log(sigma^2)
 	  x_prediction_var:fill(0)
@@ -253,12 +256,12 @@ function test()
 
   -- save model every 50 epochs
   if epoch % 5 == 0 then
-    local filename = paths.concat(opt.save, 'model.net')
+    local filename = paths.concat(opt.save, 'model.netWeights')
     print('==> saving model to '..filename)
-    torch.save(filename, model)
+    saveModelWeights(filename, model)
 	
-	filename = paths.concat(opt.save, 'decoder.net')
-	torch.save(filename, decoder)
+	filename = paths.concat(opt.save, 'decoder.netWeights')
+	saveModelWeights(filename, decoder)
   end
 
 end

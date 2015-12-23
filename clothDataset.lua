@@ -70,13 +70,13 @@ function DataSet:initLoad()
   local indices = self.indices
   if dataNorm == '01' then
   setmetatable(trainData.data, {__index = function(self, index)
-                                       im = image.load(trainData.impath_rootFolder..trainData.imPath[indices[index]])
+                                       im = image.load(trainData.impath_rootFolder..trainData.imPath[index])
 									   --if torch.max(im) <= 1.5 then im:div(255) end
                                        return im
                                     end})
   else
   setmetatable(trainData.data, {__index = function(self, index)
-                                       im = image.load(trainData.impath_rootFolder..trainData.imPath[indices[index]])
+                                       im = image.load(trainData.impath_rootFolder..trainData.imPath[index])
 									   for channel=1,3 do
 										im[{ {channel}, {}, {}  }]:add(-trainData.mean[channel])
 										im[{ {channel}, {}, {}  }]:div(trainData.std[channel])

@@ -1,4 +1,4 @@
-function zeroDataSize(data)
+local function zeroDataSize(data)
   if type(data) == 'table' then
     for i = 1, #data do
       data[i] = zeroDataSize(data[i])
@@ -21,6 +21,9 @@ function cleanupModel(node)
   if node.finput ~= nil then
     node.finput = zeroDataSize(node.finput)
   end
+  if node.fgradInput ~= nil then
+    node.fgradInput = zeroDataSize(node.fgradInput)
+  end
   -- Recurse on nodes with 'modules'
   if (node.modules ~= nil) then
     if (type(node.modules) == 'table') then
@@ -32,4 +35,16 @@ function cleanupModel(node)
   end
 
   collectgarbage()
+end
+
+function cleanupSaveModel(filename,trained_model)
+	saveModel = trained_model:double():clone()
+	cleanupModel(saveModel)
+	torch.save(filename,saveModel)
+	trained_model:cuda()
+end
+
+function saveModelWeights(filename,trained_model)
+	local weights = trained_model:getParameters()
+	torch.save(filename,weights)
 end

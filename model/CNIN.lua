@@ -78,7 +78,8 @@ function createModel()
 
 	-- Classification
 	local classifierOutput = classifier(encoderFC)
-	local classifierSoftmax = nn.SoftMax()(classifierOutput)
+	--local classifierSoftmax = nn.SoftMax()(classifierOutput)
+	local classifierSoftmax = nn.Identity()()
 
 	-- Decoder
 	local decoder = nn.Sequential()
@@ -98,7 +99,7 @@ function createModel()
 	local x_prediction, x_prediction_var = decoder({z,classifierSoftmax}):split(2)
 
 	nngraph.annotateNodes()
-	local model = nn.gModule({x},{classifierOutput,z_mean,z_log_square_var,x_prediction,x_prediction_var})
+	local model = nn.gModule({x,classifierSoftmax},{classifierOutput,z_mean,z_log_square_var,x_prediction,x_prediction_var})
 
 	if Nonlinear == 'Tanh' then
 		local threshold_nodes, container_nodes = model:findModules('nn.ReLU')

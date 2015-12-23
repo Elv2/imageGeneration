@@ -8,13 +8,13 @@ require 'cifar.torch/provider'
 
 -- setting
 modelInit = true
-debug_output = false
+debug_output = true
 latent_size = 256
 dataNorm  = '01'
 Nonlinear = 'ReLU'
 fc_inputMapSize = {192,8,8}
 opt = lapp[[
-   -s,--save_prefix           (default "logs/VAE")      subdirectory to save logs
+   -s,--save_prefix           (default "logs/cVAE")      subdirectory to save logs
    -b,--batchSize             (default 128)          batch size
    -r,--learningRate          (default 3e-4)        learning rate
    --learningRateDecay        (default 1e-7)      learning rate decay
@@ -25,7 +25,7 @@ opt = lapp[[
 ]]
 opt.save = opt.save_prefix .. Nonlinear .. dataNorm .. 'Norm/'
 
-require 'model/NIN'
+require 'model/CNIN'
 require 'clothDataset'
 require 'KLDCriterion'
 require 'GaussianCriterion'
@@ -115,6 +115,7 @@ function train()
   print(c.blue '==>'.." online epoch # " .. epoch .. ' [batchSize = ' .. opt.batchSize .. ']')
 
   local targets = torch.CudaTensor(opt.batchSize)
+  local inputTargets = torch.CudaTensor(opt.batchSize,10)
   local indices = torch.randperm(provider.trainData.data:size(1)):long():split(opt.batchSize)
   -- remove last element so that all the batches have equal size
   indices[#indices] = nil
@@ -125,12 +126,16 @@ function train()
 
     local inputs = provider.trainData.data:index(1,v)
 	targets:copy(provider.trainData.labels:index(1,v))
+	inputTargets:fill(0)
+	for index,label in ipairs(torch.totable(targets:long())) do
+		inputTargets[index][label] = 1
+	end
     -----------------------------------------------------
     local feval = function(x)
       if x ~= parameters then parameters:copy(x) end
       gradParameters:zero()
 	  
-      local classifierOutput,z_mean,z_log_square_var,x_prediction,x_prediction_var = unpack(model:forward(inputs))
+      local classifierOutput,z_mean,z_log_square_var,x_prediction,x_prediction_var = unpack(model:forward({inputs,inputTargets}))
 	  ------------------------------------------
 	  -- debug fix sigma = 1; x_prediction_var = log(sigma^2)
 	  x_prediction_var:fill(0)
@@ -252,6 +257,21 @@ end
 
 for i=1,opt.max_epoch do
   train()
-  test()
+  --test()
   generate()
+  
+  if 2 == epoch then
+    graph.dot(model.fg, 'Forward Graph', opt.save..'/ForwardGraph')
+    graph.dot(model.bg, 'Backward Graph', opt.save..'/BackwardGraph')
+  end
+
+  -- save model every 50 epochs
+  if epoch % 10 == 0 then
+    local filename = paths.concat(opt.save, 'model.netWeights')
+    print('==> saving model to '..filename)
+    saveModelWeights(filename, model)
+	
+	filename = paths.concat(opt.save, 'decoder.netWeights')
+	saveModelWeights(filename, decoder)
+  end
 end
